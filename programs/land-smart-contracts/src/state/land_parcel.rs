@@ -21,6 +21,7 @@ pub struct LandInfo {
     pub mortgage_principal: u64,
     pub mortgage_org: Pubkey,
     pub bump: u8,
+    pub nft_mint: Pubkey
 }
 
 impl LandInfo {
