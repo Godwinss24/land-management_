@@ -137,6 +137,27 @@ pub mod land_smart_contracts {
         )?;
         Ok(())
     }
+
+    pub fn initiate_transfer(ctx: Context<InitiateTransfer>) -> Result<()> {
+        instructions::initiate_transfer::initiate_transfer(ctx)
+    }
+
+    pub fn approve_transfer(ctx: Context<ApproveTransfer>) -> Result<()> {
+        instructions::approve_transfer::approve_transfer(ctx)
+    }
+
+    pub fn setup_mortgage(
+        ctx: Context<SetupMortgage>,
+        lender: Pubkey,
+        mortgage_principal: u64,
+        mortgage_org: Pubkey,
+    ) -> Result<()> {
+        instructions::setup_mortgage::setup_mortgage(ctx, lender, mortgage_principal, mortgage_org)
+    }
+
+    pub fn settle_mortgage(ctx: Context<SettleMortgage>) -> Result<()> {
+        instructions::settle_mortgage::settle_mortgage(ctx)
+    }
 }
 
 #[derive(Accounts)]
