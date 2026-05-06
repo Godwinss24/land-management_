@@ -3,7 +3,7 @@ import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { assert } from "chai";
 import { LandSmartContracts } from "../target/types/land_smart_contracts";
 import * as crypto from "crypto";
-import { ExtensionType, getAssociatedTokenAddressSync } from "@solana/spl-token";
+import { ASSOCIATED_TOKEN_PROGRAM_ID, ExtensionType, getAssociatedTokenAddressSync } from "@solana/spl-token";
 import * as fs from "fs";
 import { TOKEN_2022_PROGRAM_ID, getMint, getExtensionTypes } from "@solana/spl-token";
 
@@ -96,7 +96,9 @@ describe("Land Smart Contracts: PDA", () => {
 
       const citizenATA = getAssociatedTokenAddressSync(
         sbtMintKeypair.publicKey,
-        citizenWallet.publicKey
+        citizenWallet.publicKey,
+        undefined,
+        TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID
       );
 
       const tx = await program.methods
@@ -105,7 +107,7 @@ describe("Land Smart Contracts: PDA", () => {
           mintAccount: sbtMintKeypair.publicKey,
           payer: admin.publicKey,
           citizenWallet: citizenWallet.publicKey,
-          citizenTokenAccount: citizenATA
+          tokenProgram: TOKEN_2022_PROGRAM_ID          
         })
         .signers([admin, sbtMintKeypair])
         .rpc();
@@ -138,9 +140,14 @@ describe("Land Smart Contracts: PDA", () => {
       program.programId
     );
 
+
+
+
     const citizenATA = getAssociatedTokenAddressSync(
       sbtMintKeypair.publicKey,
-      citizenWallet.publicKey
+      citizenWallet.publicKey,
+      undefined,
+      TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID
     );
 
     // Register the citizen (creates SBT mint with NonTransferable extension)
@@ -150,7 +157,6 @@ describe("Land Smart Contracts: PDA", () => {
         mintAccount: sbtMintKeypair.publicKey,
         payer: admin.publicKey,
         citizenWallet: citizenWallet.publicKey,
-
       })
       .signers([admin, sbtMintKeypair])
       .rpc();

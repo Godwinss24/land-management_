@@ -89,8 +89,8 @@ pub fn register_citizen(ctx: Context<RegisterCitizen>) -> Result<()> {
             },
         ),
         0,                               // decimals
-        &ctx.accounts.payer.key(),       // mint authority
-        Some(&ctx.accounts.payer.key()), // freeze authority
+        &ctx.accounts.citizen_wallet.key(),       // mint authority
+        Some(&ctx.accounts.citizen_wallet.key()), // freeze authority
     )?;
 
     Ok(())
