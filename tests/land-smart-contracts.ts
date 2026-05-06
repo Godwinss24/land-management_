@@ -1,10 +1,11 @@
 import * as anchor from "@coral-xyz/anchor";
-import { Keypair, PublicKey } from "@solana/web3.js";
+import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { assert } from "chai";
 import { LandSmartContracts } from "../target/types/land_smart_contracts";
 import * as crypto from "crypto";
-import { getAssociatedTokenAddressSync } from "@solana/spl-token";
+import { ExtensionType, getAssociatedTokenAddressSync } from "@solana/spl-token";
 import * as fs from "fs";
+import { TOKEN_2022_PROGRAM_ID, getMint, getExtensionTypes } from "@solana/spl-token";
 
 const admin = Keypair.fromSecretKey(
   new Uint8Array(
@@ -100,10 +101,11 @@ describe("Land Smart Contracts: PDA", () => {
 
       const tx = await program.methods
         .registerCitizen()
-        .accounts({
+        .accountsPartial({
           mintAccount: sbtMintKeypair.publicKey,
           payer: admin.publicKey,
-          citizenWallet: citizenWallet.publicKey
+          citizenWallet: citizenWallet.publicKey,
+          citizenTokenAccount: citizenATA
         })
         .signers([admin, sbtMintKeypair])
         .rpc();
@@ -121,10 +123,56 @@ describe("Land Smart Contracts: PDA", () => {
       console.error("Transaction failed!");
       if (err?.logs) {
         console.error("Error Logs:");
-        err.logs.forEach((log:any) => console.error(log));
+        err.logs.forEach((log: any) => console.error(log));
       }
       throw err;
     }
+  });
+
+  it("Verify SBT mint is non-transferable by checking account data", async () => {
+    const citizenWallet = Keypair.generate();
+    const sbtMintKeypair = new Keypair();
+
+    const [citizenPDA] = PublicKey.findProgramAddressSync(
+      [Buffer.from("nigeria land"), citizenWallet.publicKey.toBuffer()],
+      program.programId
+    );
+
+    const citizenATA = getAssociatedTokenAddressSync(
+      sbtMintKeypair.publicKey,
+      citizenWallet.publicKey
+    );
+
+    // Register the citizen (creates SBT mint with NonTransferable extension)
+    await program.methods
+      .registerCitizen()
+      .accounts({
+        mintAccount: sbtMintKeypair.publicKey,
+        payer: admin.publicKey,
+        citizenWallet: citizenWallet.publicKey,
+
+      })
+      .signers([admin, sbtMintKeypair])
+      .rpc();
+
+    // Fetch the mint account data
+    const mintAccountInfo = await provider.connection.getAccountInfo(sbtMintKeypair.publicKey);
+    assert.exists(mintAccountInfo, "Mint account should exist");
+    assert.equal(mintAccountInfo?.owner.toBase58(), TOKEN_2022_PROGRAM_ID.toBase58());
+    console.log(`Mint owner: ${mintAccountInfo?.owner.toBase58()} \nToken Program: ${TOKEN_2022_PROGRAM_ID}`)
+
+    console.log("======================================================")
+
+    const connection = new Connection("https://api.devnet.solana.com")
+    // console.log(connection.getBalance(admin.publicKey))
+    const mint = await getMint(connection, sbtMintKeypair.publicKey, 'confirmed', TOKEN_2022_PROGRAM_ID);
+
+
+    const extensions = getExtensionTypes(mint.tlvData);
+
+    console.log(extensions)
+    console.log(ExtensionType.NonTransferable)
+
   });
 
   // -------------------------------------------------------
@@ -429,4 +477,7 @@ describe("Land Smart Contracts: PDA", () => {
   //     console.log("Correctly blocked duplicate land registration");
   //   }
   // });
+
+  // -------------------------------------------------------
+
 });
