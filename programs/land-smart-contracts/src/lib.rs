@@ -15,7 +15,7 @@ use {
     },
 };
 
-declare_id!("GLQRLagJYyfpPSyYkhmhgrGLqDPKjV26q4GzAQ9t8zMF");
+declare_id!("AZpQ1t4q9U9b3SncyYz79y3iV71ZzFf5gsQJ4k2yFkoS");
 
 #[derive(Accounts)]
 pub struct Initialize<'info> {

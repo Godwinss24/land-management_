@@ -6,7 +6,7 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-land_smart_contracts = "GLQRLagJYyfpPSyYkhmhgrGLqDPKjV26q4GzAQ9t8zMF"
+land_smart_contracts = "AZpQ1t4q9U9b3SncyYz79y3iV71ZzFf5gsQJ4k2yFkoS"
 
 [registry]
 url = "https://api.apr.dev"
