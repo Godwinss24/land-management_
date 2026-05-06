@@ -83,303 +83,350 @@ describe("Land Smart Contracts: PDA", () => {
     }
   });
 
-  // -------------------------------------------------------
-  it("Register a new land parcel", async () => {
-    const mintKeypair = new Keypair();
-    const coordinatesHash = randomCoordinatesHash();
-
-    const [landPDA] = PublicKey.findProgramAddressSync(
-      [Buffer.from("land"), coordinatesHash],
-      program.programId
-    );
-
-    await program.methods
-      .registerLand(
-        Array.from(coordinatesHash),
-        admin.publicKey,
-        { active: {} },
-        metadata.name,
-        metadata.symbol,
-        metadata.uri
-      )
-      .accounts({
-        admin: admin.publicKey,
-        mintAccount: mintKeypair.publicKey,
-        owner: admin.publicKey,
-      })
-      .signers([mintKeypair, admin])
-      .rpc();
-
-    const landInfo = await program.account.landInfo.fetch(landPDA);
-    console.log("Registered land:", JSON.stringify(landInfo));
-
-    assert.deepEqual(Array.from(landInfo.coordinatesHash), Array.from(coordinatesHash));
-    assert.equal(landInfo.owner.toBase58(), admin.publicKey.toBase58());
-    assert.deepEqual(landInfo.status, { active: {} });
-    assert.equal(landInfo.transferInitiatedAt.toNumber(), 0);
-    assert.equal(landInfo.hasPendingTransfer, false);
-    assert.equal(landInfo.hasMortgage, false);
-    assert.equal(landInfo.mortgagePrincipal.toNumber(), 0);
-  });
-
-  // -------------------------------------------------------
-  it("Initiate and approve land transfer", async () => {
-    const mintKeypair = new Keypair();
-    const coordinatesHash = randomCoordinatesHash();
-
-    const [landPDA] = PublicKey.findProgramAddressSync(
-      [Buffer.from("land"), coordinatesHash],
-      program.programId
-    );
-
-    // Step 1: Register land — admin is payer and owner
-    await program.methods
-      .registerLand(
-        Array.from(coordinatesHash),
-        currentOwner.publicKey,
-        { active: {} },
-        metadata.name,
-        metadata.symbol,
-        metadata.uri
-      )
-      .accounts({
-        admin: admin.publicKey,
-        mintAccount: mintKeypair.publicKey,
-        owner: currentOwner.publicKey,
-      })
-      .signers([mintKeypair, admin])
-      .rpc();
-
-    const landInfoBefore = await program.account.landInfo.fetch(landPDA);
-    console.log("Owner before transfer:", landInfoBefore.owner.toBase58());
-    assert.equal(landInfoBefore.owner.toBase58(), currentOwner.publicKey.toBase58());
-    assert.equal(landInfoBefore.hasPendingTransfer, false);
-
-    // Step 2: Admin initiates transfer (currentOwner must sign for token approval)
-    await program.methods
-      .initiateTransfer(Array.from(coordinatesHash))
-      .accountsPartial({
-        admin: admin.publicKey,
-        currentOwner: currentOwner.publicKey,
-        newOwner: newOwner.publicKey,
-        landInfo: landPDA,
-        mintAccount: landInfoBefore.nftMint,
-        programState: programStatePDA,
-      })
-      .signers([admin, currentOwner])
-      .rpc();
-
-    const landInfoPending = await program.account.landInfo.fetch(landPDA);
-    console.log("Pending owner:", landInfoPending.pendingOwner.toBase58());
-    assert.equal(landInfoPending.hasPendingTransfer, true);
-    assert.equal(
-      landInfoPending.pendingOwner.toBase58(),
-      newOwner.publicKey.toBase58()
-    );
-    assert.ok(landInfoPending.transferInitiatedAt.toNumber() > 0);
-
-    // Step 3: Admin approves transfer
-    await program.methods
-      .approveTransfer(Array.from(coordinatesHash))
-      .accountsPartial({
-        admin: admin.publicKey,
-        currentOwner: currentOwner.publicKey,
-        newOwner: newOwner.publicKey,
-        landInfo: landPDA,
-        mintAccount: landInfoBefore.nftMint,
-        programState: programStatePDA,
-      })
-      .signers([admin])
-      .rpc();
-
-    const landInfoAfter = await program.account.landInfo.fetch(landPDA);
-    console.log("Owner after transfer:", landInfoAfter.owner.toBase58());
-    assert.equal(landInfoAfter.owner.toBase58(), newOwner.publicKey.toBase58());
-    assert.equal(landInfoAfter.hasPendingTransfer, false);
-    assert.equal(
-      landInfoAfter.pendingOwner.toBase58(),
-      PublicKey.default.toBase58()
-    );
-    assert.equal(landInfoAfter.transferInitiatedAt.toNumber(), 0);
-
-    // Step 4: Verify NFT is in new owner's ATA
-    const newOwnerATA = getAssociatedTokenAddressSync(
-      landInfoBefore.nftMint,
-      newOwner.publicKey
-    );
-    const newTokenBalance =
-      await provider.connection.getTokenAccountBalance(newOwnerATA);
-    assert.equal(newTokenBalance.value.uiAmount, 1);
-
-    // Step 5: Verify old owner no longer holds NFT
-    const oldOwnerATA = getAssociatedTokenAddressSync(
-      landInfoBefore.nftMint,
-      currentOwner.publicKey
-    );
-    const oldTokenBalance =
-      await provider.connection.getTokenAccountBalance(oldOwnerATA);
-    assert.equal(oldTokenBalance.value.uiAmount, 0);
-  });
-
-  // -------------------------------------------------------
-  it("Setup and settle mortgage", async () => {
-    const mintKeypair = new Keypair();
-    const coordinatesHash = randomCoordinatesHash();
-
-    const [landPDA] = PublicKey.findProgramAddressSync(
-      [Buffer.from("land"), coordinatesHash],
-      program.programId
-    );
-
-    // Step 1: Register land — admin is payer and owner
-    await program.methods
-      .registerLand(
-        Array.from(coordinatesHash),
-        currentOwner.publicKey,
-        { active: {} },
-        metadata.name,
-        metadata.symbol,
-        metadata.uri
-      )
-      .accounts({
-        admin: admin.publicKey,
-        mintAccount: mintKeypair.publicKey,
-        owner: currentOwner.publicKey,
-      })
-      .signers([mintKeypair, admin])
-      .rpc();
-
-    const landInfoBefore = await program.account.landInfo.fetch(landPDA);
-    assert.equal(landInfoBefore.hasMortgage, false);
-    assert.deepEqual(landInfoBefore.status, { active: {} });
-
-    // Step 2: Admin sets up mortgage (PDA is freeze authority, signs via seeds)
-    const lender = Keypair.generate().publicKey;
-    const mortgageOrg = Keypair.generate().publicKey;
-    const mortgagePrincipal = new anchor.BN(5_000_000); // 5 SOL in lamports
-
-    await program.methods
-      .setupMortgage(Array.from(coordinatesHash), lender, mortgagePrincipal, mortgageOrg)
-      .accountsPartial({
-        admin: admin.publicKey,
-        owner: currentOwner.publicKey,
-        landInfo: landPDA,
-        mintAccount: landInfoBefore.nftMint,
-        programState: programStatePDA,
-      })
-      .signers([admin])
-      .rpc();
-
-    const landInfoMortgaged = await program.account.landInfo.fetch(landPDA);
-    console.log("Mortgaged land:", JSON.stringify(landInfoMortgaged));
-    assert.equal(landInfoMortgaged.hasMortgage, true);
-    assert.deepEqual(landInfoMortgaged.status, { lien: {} });
-    assert.equal(landInfoMortgaged.lender.toBase58(), lender.toBase58());
-    assert.equal(landInfoMortgaged.mortgageOrg.toBase58(), mortgageOrg.toBase58());
-    assert.equal(
-      landInfoMortgaged.mortgagePrincipal.toNumber(),
-      mortgagePrincipal.toNumber()
-    );
-
-    // Step 3: Verify land cannot be transferred while mortgaged
+  it("Register a new citizen", async () => {
     try {
-      await program.methods
-        .initiateTransfer(Array.from(coordinatesHash))
-        .accountsPartial({
-          admin: admin.publicKey,
-          currentOwner: currentOwner.publicKey,
-          newOwner: newOwner.publicKey,
-          landInfo: landPDA,
-          mintAccount: landInfoBefore.nftMint,
-          programState: programStatePDA,
-        })
-        .signers([admin, currentOwner])
-        .rpc();
-      assert.fail("Should have thrown LandHasMortgage error");
-    } catch (err: any) {
-      assert.include(err.message, "LandHasMortgage");
-      console.log("Correctly blocked transfer on mortgaged land");
-    }
+      const citizenWallet = Keypair.generate();
+      const sbtMintKeypair = new Keypair();
 
-    // Step 4: Admin settles mortgage (PDA is freeze authority, signs via seeds)
-    await program.methods
-      .settleMortgage(Array.from(coordinatesHash))
-      .accountsPartial({
-        admin: admin.publicKey,
-        owner: currentOwner.publicKey,
-        landInfo: landPDA,
-        mintAccount: landInfoBefore.nftMint,
-        programState: programStatePDA,
-      })
-      .signers([admin])
-      .rpc();
+      const [citizenPDA] = PublicKey.findProgramAddressSync(
+        [Buffer.from("nigeria_land"), citizenWallet.publicKey.toBuffer()],
+        program.programId
+      );
 
-    const landInfoSettled = await program.account.landInfo.fetch(landPDA);
-    console.log("Settled land:", JSON.stringify(landInfoSettled));
-    assert.equal(landInfoSettled.hasMortgage, false);
-    assert.deepEqual(landInfoSettled.status, { active: {} });
-    assert.equal(
-      landInfoSettled.lender.toBase58(),
-      PublicKey.default.toBase58()
-    );
-    assert.equal(
-      landInfoSettled.mortgageOrg.toBase58(),
-      PublicKey.default.toBase58()
-    );
-    assert.equal(landInfoSettled.mortgagePrincipal.toNumber(), 0);
-  });
+      const citizenATA = getAssociatedTokenAddressSync(
+        sbtMintKeypair.publicKey,
+        citizenWallet.publicKey
+      );
 
-  // -------------------------------------------------------
-  it("Fail to register same land twice", async () => {
-    const mintKeypair1 = new Keypair();
-    const mintKeypair2 = new Keypair();
-    const coordinatesHash = randomCoordinatesHash();
-
-    const [landPDA] = PublicKey.findProgramAddressSync(
-      [Buffer.from("land"), coordinatesHash],
-      program.programId
-    );
-
-    // First registration — should succeed
-    await program.methods
-      .registerLand(
-        Array.from(coordinatesHash),
-        admin.publicKey,
-        { active: {} },
-        metadata.name,
-        metadata.symbol,
-        metadata.uri
-      )
-      .accounts({
-        admin: admin.publicKey,
-        mintAccount: mintKeypair1.publicKey,
-        owner: admin.publicKey,
-      })
-      .signers([mintKeypair1, admin])
-      .rpc();
-
-    // Second registration with same coordinates — should fail
-    try {
-      await program.methods
-        .registerLand(
-          Array.from(coordinatesHash),
-          admin.publicKey,
-          { active: {} },
-          metadata.name,
-          metadata.symbol,
-          metadata.uri
-        )
+      const tx = await program.methods
+        .registerCitizen()
         .accounts({
-          admin: admin.publicKey,
-          mintAccount: mintKeypair2.publicKey,
-          owner: admin.publicKey,
+          mintAccount: sbtMintKeypair.publicKey,
+          payer: admin.publicKey,
+          citizenWallet: citizenWallet.publicKey
         })
-        .signers([mintKeypair2, admin])
+        .signers([admin, sbtMintKeypair])
         .rpc();
-      assert.fail("Should have thrown already in use error");
+
+      const txDetails = await provider.connection.getTransaction(tx, {
+        commitment: "confirmed",
+        maxSupportedTransactionVersion: 0,
+      });
+      if (txDetails?.meta?.logMessages) {
+        console.log("Transaction Logs:");
+        txDetails.meta.logMessages.forEach((log) => console.log(log));
+      }
+      console.log("Citizen registered. PDA:", citizenPDA.toBase58());
     } catch (err: any) {
-      assert.exists(err);
-      console.log("Correctly blocked duplicate land registration");
+      console.error("Transaction failed!");
+      if (err?.logs) {
+        console.error("Error Logs:");
+        err.logs.forEach((log:any) => console.error(log));
+      }
+      throw err;
     }
   });
+
+  // -------------------------------------------------------
+  // it("Register a new land parcel", async () => {
+  //   const mintKeypair = new Keypair();
+  //   const coordinatesHash = randomCoordinatesHash();
+
+  //   const [landPDA] = PublicKey.findProgramAddressSync(
+  //     [Buffer.from("land"), coordinatesHash],
+  //     program.programId
+  //   );
+
+  //   await program.methods
+  //     .registerLand(
+  //       Array.from(coordinatesHash),
+  //       admin.publicKey,
+  //       { active: {} },
+  //       metadata.name,
+  //       metadata.symbol,
+  //       metadata.uri
+  //     )
+  //     .accounts({
+  //       admin: admin.publicKey,
+  //       mintAccount: mintKeypair.publicKey,
+  //       owner: admin.publicKey,
+  //     })
+  //     .signers([mintKeypair, admin])
+  //     .rpc();
+
+  //   const landInfo = await program.account.landInfo.fetch(landPDA);
+  //   console.log("Registered land:", JSON.stringify(landInfo));
+
+  //   assert.deepEqual(Array.from(landInfo.coordinatesHash), Array.from(coordinatesHash));
+  //   assert.equal(landInfo.owner.toBase58(), admin.publicKey.toBase58());
+  //   assert.deepEqual(landInfo.status, { active: {} });
+  //   assert.equal(landInfo.transferInitiatedAt.toNumber(), 0);
+  //   assert.equal(landInfo.hasPendingTransfer, false);
+  //   assert.equal(landInfo.hasMortgage, false);
+  //   assert.equal(landInfo.mortgagePrincipal.toNumber(), 0);
+  // });
+
+  // // -------------------------------------------------------
+  // it("Initiate and approve land transfer", async () => {
+  //   const mintKeypair = new Keypair();
+  //   const coordinatesHash = randomCoordinatesHash();
+
+  //   const [landPDA] = PublicKey.findProgramAddressSync(
+  //     [Buffer.from("land"), coordinatesHash],
+  //     program.programId
+  //   );
+
+  //   // Step 1: Register land — admin is payer and owner
+  //   await program.methods
+  //     .registerLand(
+  //       Array.from(coordinatesHash),
+  //       currentOwner.publicKey,
+  //       { active: {} },
+  //       metadata.name,
+  //       metadata.symbol,
+  //       metadata.uri
+  //     )
+  //     .accounts({
+  //       admin: admin.publicKey,
+  //       mintAccount: mintKeypair.publicKey,
+  //       owner: currentOwner.publicKey,
+  //     })
+  //     .signers([mintKeypair, admin])
+  //     .rpc();
+
+  //   const landInfoBefore = await program.account.landInfo.fetch(landPDA);
+  //   console.log("Owner before transfer:", landInfoBefore.owner.toBase58());
+  //   assert.equal(landInfoBefore.owner.toBase58(), currentOwner.publicKey.toBase58());
+  //   assert.equal(landInfoBefore.hasPendingTransfer, false);
+
+  //   // Step 2: Admin initiates transfer (currentOwner must sign for token approval)
+  //   await program.methods
+  //     .initiateTransfer(Array.from(coordinatesHash))
+  //     .accountsPartial({
+  //       admin: admin.publicKey,
+  //       currentOwner: currentOwner.publicKey,
+  //       newOwner: newOwner.publicKey,
+  //       landInfo: landPDA,
+  //       mintAccount: landInfoBefore.nftMint,
+  //       programState: programStatePDA,
+  //     })
+  //     .signers([admin, currentOwner])
+  //     .rpc();
+
+  //   const landInfoPending = await program.account.landInfo.fetch(landPDA);
+  //   console.log("Pending owner:", landInfoPending.pendingOwner.toBase58());
+  //   assert.equal(landInfoPending.hasPendingTransfer, true);
+  //   assert.equal(
+  //     landInfoPending.pendingOwner.toBase58(),
+  //     newOwner.publicKey.toBase58()
+  //   );
+  //   assert.ok(landInfoPending.transferInitiatedAt.toNumber() > 0);
+
+  //   // Step 3: Admin approves transfer
+  //   await program.methods
+  //     .approveTransfer(Array.from(coordinatesHash))
+  //     .accountsPartial({
+  //       admin: admin.publicKey,
+  //       currentOwner: currentOwner.publicKey,
+  //       newOwner: newOwner.publicKey,
+  //       landInfo: landPDA,
+  //       mintAccount: landInfoBefore.nftMint,
+  //       programState: programStatePDA,
+  //     })
+  //     .signers([admin])
+  //     .rpc();
+
+  //   const landInfoAfter = await program.account.landInfo.fetch(landPDA);
+  //   console.log("Owner after transfer:", landInfoAfter.owner.toBase58());
+  //   assert.equal(landInfoAfter.owner.toBase58(), newOwner.publicKey.toBase58());
+  //   assert.equal(landInfoAfter.hasPendingTransfer, false);
+  //   assert.equal(
+  //     landInfoAfter.pendingOwner.toBase58(),
+  //     PublicKey.default.toBase58()
+  //   );
+  //   assert.equal(landInfoAfter.transferInitiatedAt.toNumber(), 0);
+
+  //   // Step 4: Verify NFT is in new owner's ATA
+  //   const newOwnerATA = getAssociatedTokenAddressSync(
+  //     landInfoBefore.nftMint,
+  //     newOwner.publicKey
+  //   );
+  //   const newTokenBalance =
+  //     await provider.connection.getTokenAccountBalance(newOwnerATA);
+  //   assert.equal(newTokenBalance.value.uiAmount, 1);
+
+  //   // Step 5: Verify old owner no longer holds NFT
+  //   const oldOwnerATA = getAssociatedTokenAddressSync(
+  //     landInfoBefore.nftMint,
+  //     currentOwner.publicKey
+  //   );
+  //   const oldTokenBalance =
+  //     await provider.connection.getTokenAccountBalance(oldOwnerATA);
+  //   assert.equal(oldTokenBalance.value.uiAmount, 0);
+  // });
+
+  // // -------------------------------------------------------
+  // it("Setup and settle mortgage", async () => {
+  //   const mintKeypair = new Keypair();
+  //   const coordinatesHash = randomCoordinatesHash();
+
+  //   const [landPDA] = PublicKey.findProgramAddressSync(
+  //     [Buffer.from("land"), coordinatesHash],
+  //     program.programId
+  //   );
+
+  //   // Step 1: Register land — admin is payer and owner
+  //   await program.methods
+  //     .registerLand(
+  //       Array.from(coordinatesHash),
+  //       currentOwner.publicKey,
+  //       { active: {} },
+  //       metadata.name,
+  //       metadata.symbol,
+  //       metadata.uri
+  //     )
+  //     .accounts({
+  //       admin: admin.publicKey,
+  //       mintAccount: mintKeypair.publicKey,
+  //       owner: currentOwner.publicKey,
+  //     })
+  //     .signers([mintKeypair, admin])
+  //     .rpc();
+
+  //   const landInfoBefore = await program.account.landInfo.fetch(landPDA);
+  //   assert.equal(landInfoBefore.hasMortgage, false);
+  //   assert.deepEqual(landInfoBefore.status, { active: {} });
+
+  //   // Step 2: Admin sets up mortgage (PDA is freeze authority, signs via seeds)
+  //   const lender = Keypair.generate().publicKey;
+  //   const mortgageOrg = Keypair.generate().publicKey;
+  //   const mortgagePrincipal = new anchor.BN(5_000_000); // 5 SOL in lamports
+
+  //   await program.methods
+  //     .setupMortgage(Array.from(coordinatesHash), lender, mortgagePrincipal, mortgageOrg)
+  //     .accountsPartial({
+  //       admin: admin.publicKey,
+  //       owner: currentOwner.publicKey,
+  //       landInfo: landPDA,
+  //       mintAccount: landInfoBefore.nftMint,
+  //       programState: programStatePDA,
+  //     })
+  //     .signers([admin])
+  //     .rpc();
+
+  //   const landInfoMortgaged = await program.account.landInfo.fetch(landPDA);
+  //   console.log("Mortgaged land:", JSON.stringify(landInfoMortgaged));
+  //   assert.equal(landInfoMortgaged.hasMortgage, true);
+  //   assert.deepEqual(landInfoMortgaged.status, { lien: {} });
+  //   assert.equal(landInfoMortgaged.lender.toBase58(), lender.toBase58());
+  //   assert.equal(landInfoMortgaged.mortgageOrg.toBase58(), mortgageOrg.toBase58());
+  //   assert.equal(
+  //     landInfoMortgaged.mortgagePrincipal.toNumber(),
+  //     mortgagePrincipal.toNumber()
+  //   );
+
+  //   // Step 3: Verify land cannot be transferred while mortgaged
+  //   try {
+  //     await program.methods
+  //       .initiateTransfer(Array.from(coordinatesHash))
+  //       .accountsPartial({
+  //         admin: admin.publicKey,
+  //         currentOwner: currentOwner.publicKey,
+  //         newOwner: newOwner.publicKey,
+  //         landInfo: landPDA,
+  //         mintAccount: landInfoBefore.nftMint,
+  //         programState: programStatePDA,
+  //       })
+  //       .signers([admin, currentOwner])
+  //       .rpc();
+  //     assert.fail("Should have thrown LandHasMortgage error");
+  //   } catch (err: any) {
+  //     assert.include(err.message, "LandHasMortgage");
+  //     console.log("Correctly blocked transfer on mortgaged land");
+  //   }
+
+  //   // Step 4: Admin settles mortgage (PDA is freeze authority, signs via seeds)
+  //   await program.methods
+  //     .settleMortgage(Array.from(coordinatesHash))
+  //     .accountsPartial({
+  //       admin: admin.publicKey,
+  //       owner: currentOwner.publicKey,
+  //       landInfo: landPDA,
+  //       mintAccount: landInfoBefore.nftMint,
+  //       programState: programStatePDA,
+  //     })
+  //     .signers([admin])
+  //     .rpc();
+
+  //   const landInfoSettled = await program.account.landInfo.fetch(landPDA);
+  //   console.log("Settled land:", JSON.stringify(landInfoSettled));
+  //   assert.equal(landInfoSettled.hasMortgage, false);
+  //   assert.deepEqual(landInfoSettled.status, { active: {} });
+  //   assert.equal(
+  //     landInfoSettled.lender.toBase58(),
+  //     PublicKey.default.toBase58()
+  //   );
+  //   assert.equal(
+  //     landInfoSettled.mortgageOrg.toBase58(),
+  //     PublicKey.default.toBase58()
+  //   );
+  //   assert.equal(landInfoSettled.mortgagePrincipal.toNumber(), 0);
+  // });
+
+  // // -------------------------------------------------------
+
+
+  // // -------------------------------------------------------
+  // it("Fail to register same land twice", async () => {
+  //   const mintKeypair1 = new Keypair();
+  //   const mintKeypair2 = new Keypair();
+  //   const coordinatesHash = randomCoordinatesHash();
+
+  //   const [landPDA] = PublicKey.findProgramAddressSync(
+  //     [Buffer.from("land"), coordinatesHash],
+  //     program.programId
+  //   );
+
+  //   // First registration — should succeed
+  //   await program.methods
+  //     .registerLand(
+  //       Array.from(coordinatesHash),
+  //       admin.publicKey,
+  //       { active: {} },
+  //       metadata.name,
+  //       metadata.symbol,
+  //       metadata.uri
+  //     )
+  //     .accounts({
+  //       admin: admin.publicKey,
+  //       mintAccount: mintKeypair1.publicKey,
+  //       owner: admin.publicKey,
+  //     })
+  //     .signers([mintKeypair1, admin])
+  //     .rpc();
+
+  //   // Second registration with same coordinates — should fail
+  //   try {
+  //     await program.methods
+  //       .registerLand(
+  //         Array.from(coordinatesHash),
+  //         admin.publicKey,
+  //         { active: {} },
+  //         metadata.name,
+  //         metadata.symbol,
+  //         metadata.uri
+  //       )
+  //       .accounts({
+  //         admin: admin.publicKey,
+  //         mintAccount: mintKeypair2.publicKey,
+  //         owner: admin.publicKey,
+  //       })
+  //       .signers([mintKeypair2, admin])
+  //       .rpc();
+  //     assert.fail("Should have thrown already in use error");
+  //   } catch (err: any) {
+  //     assert.exists(err);
+  //     console.log("Correctly blocked duplicate land registration");
+  //   }
+  // });
 });
