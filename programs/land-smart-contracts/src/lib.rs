@@ -4,18 +4,33 @@ pub mod state;
 
 use instructions::*;
 use state::land_parcel::ParcelStatus;
+use state::program_state::ProgramState;
 use {
-    anchor_lang::prelude::*,
     anchor_spl::{
         metadata::{
             create_metadata_accounts_v3, mpl_token_metadata::types::DataV2,
             CreateMetadataAccountsV3, Metadata,
         },
-        token::{Mint, MintTo, Token},
+        token::{MintTo, Token},
     },
 };
 
 declare_id!("GLQRLagJYyfpPSyYkhmhgrGLqDPKjV26q4GzAQ9t8zMF");
+
+#[derive(Accounts)]
+pub struct Initialize<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    #[account(
+        init,
+        payer = admin,
+        space = 8 + ProgramState::INIT_SPACE,
+        seeds = [ProgramState::SEED_PREFIX],
+        bump
+    )]
+    pub program_state: Account<'info, ProgramState>,
+    pub system_program: Program<'info, System>,
+}
 
 #[program]
 pub mod land_smart_contracts {
@@ -26,7 +41,10 @@ pub mod land_smart_contracts {
     use super::*;
 
     pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
-        msg!("Greetings from: {:?}", ctx.program_id);
+        let program_state = &mut ctx.accounts.program_state;
+        program_state.admin = ctx.accounts.admin.key();
+        program_state.bump = ctx.bumps.program_state;
+        msg!("Program initialized. Admin: {:?}", program_state.admin);
         Ok(())
     }
 
@@ -85,7 +103,7 @@ pub mod land_smart_contracts {
                     mint: ctx.accounts.mint_account.to_account_info(),
                     mint_authority: ctx.accounts.land_info.to_account_info(),
                     update_authority: ctx.accounts.land_info.to_account_info(),
-                    payer: ctx.accounts.payer.to_account_info(),
+                    payer: ctx.accounts.admin.to_account_info(),
                     system_program: ctx.accounts.system_program.to_account_info(),
                     rent: ctx.accounts.rent.to_account_info(),
                 },
@@ -138,27 +156,25 @@ pub mod land_smart_contracts {
         Ok(())
     }
 
-    pub fn initiate_transfer(ctx: Context<InitiateTransfer>) -> Result<()> {
-        instructions::initiate_transfer::initiate_transfer(ctx)
+    pub fn initiate_transfer(ctx: Context<InitiateTransfer>, coordinates_hash: [u8; 32]) -> Result<()> {
+        instructions::initiate_transfer::initiate_transfer(ctx, coordinates_hash)
     }
 
-    pub fn approve_transfer(ctx: Context<ApproveTransfer>) -> Result<()> {
-        instructions::approve_transfer::approve_transfer(ctx)
+    pub fn approve_transfer(ctx: Context<ApproveTransfer>, coordinates_hash: [u8; 32]) -> Result<()> {
+        instructions::approve_transfer::approve_transfer(ctx, coordinates_hash)
     }
 
     pub fn setup_mortgage(
         ctx: Context<SetupMortgage>,
+        coordinates_hash: [u8; 32],
         lender: Pubkey,
         mortgage_principal: u64,
         mortgage_org: Pubkey,
     ) -> Result<()> {
-        instructions::setup_mortgage::setup_mortgage(ctx, lender, mortgage_principal, mortgage_org)
+        instructions::setup_mortgage::setup_mortgage(ctx, coordinates_hash, lender, mortgage_principal, mortgage_org)
     }
 
-    pub fn settle_mortgage(ctx: Context<SettleMortgage>) -> Result<()> {
-        instructions::settle_mortgage::settle_mortgage(ctx)
+    pub fn settle_mortgage(ctx: Context<SettleMortgage>, coordinates_hash: [u8; 32]) -> Result<()> {
+        instructions::settle_mortgage::settle_mortgage(ctx, coordinates_hash)
     }
 }
-
-#[derive(Accounts)]
-pub struct Initialize {}

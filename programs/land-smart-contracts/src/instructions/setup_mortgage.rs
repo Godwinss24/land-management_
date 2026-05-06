@@ -1,10 +1,12 @@
 use crate::state::errors::LandError;
 use crate::state::land_parcel::{LandInfo, ParcelStatus};
+use crate::state::program_state::ProgramState;
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{freeze_account, FreezeAccount, Mint, Token, TokenAccount};
 
 #[derive(Accounts)]
+#[instruction(coordinates_hash: [u8; 32])]
 pub struct SetupMortgage<'info> {
     #[account(mut)]
     pub admin: Signer<'info>,
@@ -14,7 +16,7 @@ pub struct SetupMortgage<'info> {
 
     #[account(
         mut,
-        seeds = [LandInfo::SEED_PREFIX, land_info.coordinates_hash.as_ref()],
+        seeds = [LandInfo::SEED_PREFIX, coordinates_hash.as_ref()],
         bump = land_info.bump,
         constraint = land_info.owner == owner.key() @ LandError::NotOwner,
         constraint = !land_info.has_mortgage @ LandError::MortgageAlreadyExists,
@@ -36,6 +38,13 @@ pub struct SetupMortgage<'info> {
     )]
     pub owner_token_account: Account<'info, TokenAccount>,
 
+    #[account(
+        seeds = [ProgramState::SEED_PREFIX],
+        bump = program_state.bump,
+        constraint = admin.key() == program_state.admin @ LandError::UnauthorizedAdmin
+    )]
+    pub program_state: Account<'info, ProgramState>,
+
     pub token_program: Program<'info, Token>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
@@ -43,6 +52,7 @@ pub struct SetupMortgage<'info> {
 
 pub fn setup_mortgage(
     ctx: Context<SetupMortgage>,
+    _coordinates_hash: [u8; 32],
     lender: Pubkey,
     mortgage_principal: u64,
     mortgage_org: Pubkey,

@@ -1,5 +1,6 @@
 use crate::state::errors::LandError;
 use crate::state::land_parcel::LandInfo;
+use crate::state::program_state::ProgramState;
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{Mint, ThawAccount, Token, TokenAccount, Transfer, thaw_account, transfer};
@@ -7,6 +8,7 @@ use anchor_spl::token::{Mint, ThawAccount, Token, TokenAccount, Transfer, thaw_a
 pub const TRANSFER_EXPIRY_SECONDS: u64 = 7 * 24 * 60 * 60; // 7 days
 
 #[derive(Accounts)]
+#[instruction(coordinates_hash: [u8; 32])]
 pub struct ApproveTransfer<'info> {
     #[account(mut)]
     pub admin: Signer<'info>, // only admin can approve
@@ -19,7 +21,7 @@ pub struct ApproveTransfer<'info> {
 
     #[account(
         mut,
-        seeds = [LandInfo::SEED_PREFIX, land_info.coordinates_hash.as_ref()],
+        seeds = [LandInfo::SEED_PREFIX, coordinates_hash.as_ref()],
         bump = land_info.bump,
         constraint = land_info.has_pending_transfer @ LandError::NoPendingTransfer,
         constraint = land_info.owner == current_owner.key() @ LandError::NotOwner,
@@ -49,12 +51,19 @@ pub struct ApproveTransfer<'info> {
     )]
     pub new_owner_token_account: Account<'info, TokenAccount>,
 
+    #[account(
+        seeds = [ProgramState::SEED_PREFIX],
+        bump = program_state.bump,
+        constraint = admin.key() == program_state.admin @ LandError::UnauthorizedAdmin
+    )]
+    pub program_state: Account<'info, ProgramState>,
+
     pub token_program: Program<'info, Token>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
 }
 
-pub fn approve_transfer(ctx: Context<ApproveTransfer>) -> Result<()> {
+pub fn approve_transfer(ctx: Context<ApproveTransfer>, _coordinates_hash: [u8; 32]) -> Result<()> {
     // Extract everything needed from land_info before mutable borrow
     let bump = ctx.accounts.land_info.bump;
     let coordinates_hash = ctx.accounts.land_info.coordinates_hash;

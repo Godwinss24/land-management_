@@ -6,6 +6,12 @@ import * as crypto from "crypto";
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import * as fs from "fs";
 
+const admin = Keypair.fromSecretKey(
+  new Uint8Array(
+    JSON.parse(fs.readFileSync("tests/keypairs/admin-keypair.json", "utf8"))
+  )
+);
+
 const currentOwner = Keypair.fromSecretKey(
   new Uint8Array(
     JSON.parse(fs.readFileSync("tests/keypairs/current-owner.json", "utf8"))
@@ -19,11 +25,18 @@ const newOwner = Keypair.fromSecretKey(
 );
 
 describe("Land Smart Contracts: PDA", () => {
+  console.log(admin.publicKey.toBase58())
+
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
-  const payer = (provider.wallet as anchor.Wallet).payer;
   const program = anchor.workspace
     .landSmartContracts as anchor.Program<LandSmartContracts>;
+
+  // Derive program_state PDA
+  const [programStatePDA] = PublicKey.findProgramAddressSync(
+    [Buffer.from("program_state")],
+    program.programId
+  );
 
   const metadata = {
     name: "Solana Gold",
@@ -45,6 +58,32 @@ describe("Land Smart Contracts: PDA", () => {
   }
 
   // -------------------------------------------------------
+  // Initialize program state before all tests
+  before(async () => {
+    // Airdrop SOL to admin for transaction fees
+    // const airdropSig = await provider.connection.requestAirdrop(
+    //   admin.publicKey,
+    //   2 * anchor.web3.LAMPORTS_PER_SOL
+    // );
+    // await provider.connection.confirmTransaction(airdropSig);
+
+    // Initialize program state with admin
+    try {
+      await program.methods
+        .initialize()
+        .accounts({
+          admin: admin.publicKey,
+        })
+        .signers([admin])
+        .rpc();
+      console.log("Program initialized. Admin:", admin.publicKey.toBase58());
+    } catch (err: any) {
+      // Program state might already be initialized
+      console.log("Program state already initialized or error:", err.message);
+    }
+  });
+
+  // -------------------------------------------------------
   it("Register a new land parcel", async () => {
     const mintKeypair = new Keypair();
     const coordinatesHash = randomCoordinatesHash();
@@ -57,25 +96,25 @@ describe("Land Smart Contracts: PDA", () => {
     await program.methods
       .registerLand(
         Array.from(coordinatesHash),
-        payer.publicKey,
+        admin.publicKey,
         { active: {} },
         metadata.name,
         metadata.symbol,
         metadata.uri
       )
       .accounts({
-        payer: payer.publicKey,
+        admin: admin.publicKey,
         mintAccount: mintKeypair.publicKey,
-        owner: payer.publicKey,
+        owner: admin.publicKey,
       })
-      .signers([mintKeypair])
+      .signers([mintKeypair, admin])
       .rpc();
 
     const landInfo = await program.account.landInfo.fetch(landPDA);
     console.log("Registered land:", JSON.stringify(landInfo));
 
     assert.deepEqual(Array.from(landInfo.coordinatesHash), Array.from(coordinatesHash));
-    assert.equal(landInfo.owner.toBase58(), payer.publicKey.toBase58());
+    assert.equal(landInfo.owner.toBase58(), admin.publicKey.toBase58());
     assert.deepEqual(landInfo.status, { active: {} });
     assert.equal(landInfo.transferInitiatedAt.toNumber(), 0);
     assert.equal(landInfo.hasPendingTransfer, false);
@@ -86,19 +125,14 @@ describe("Land Smart Contracts: PDA", () => {
   // -------------------------------------------------------
   it("Initiate and approve land transfer", async () => {
     const mintKeypair = new Keypair();
-    const coordinatesHash = coordinatesToHash([
-      [6.522244, 3.3792],
-      [6.5288254, 3.3802],
-      [6.5264, 3.3812],
-      [6.522274, 3.38254],
-    ]);
+    const coordinatesHash = randomCoordinatesHash();
 
     const [landPDA] = PublicKey.findProgramAddressSync(
       [Buffer.from("land"), coordinatesHash],
       program.programId
     );
 
-    // Step 1: Register land — currentOwner is payer and owner
+    // Step 1: Register land — admin is payer and owner
     await program.methods
       .registerLand(
         Array.from(coordinatesHash),
@@ -109,11 +143,11 @@ describe("Land Smart Contracts: PDA", () => {
         metadata.uri
       )
       .accounts({
-        payer: currentOwner.publicKey,
+        admin: admin.publicKey,
         mintAccount: mintKeypair.publicKey,
         owner: currentOwner.publicKey,
       })
-      .signers([mintKeypair, currentOwner])
+      .signers([mintKeypair, admin])
       .rpc();
 
     const landInfoBefore = await program.account.landInfo.fetch(landPDA);
@@ -121,16 +155,18 @@ describe("Land Smart Contracts: PDA", () => {
     assert.equal(landInfoBefore.owner.toBase58(), currentOwner.publicKey.toBase58());
     assert.equal(landInfoBefore.hasPendingTransfer, false);
 
-    // Step 2: Current owner initiates transfer
+    // Step 2: Admin initiates transfer (currentOwner must sign for token approval)
     await program.methods
-      .initiateTransfer()
+      .initiateTransfer(Array.from(coordinatesHash))
       .accountsPartial({
+        admin: admin.publicKey,
         currentOwner: currentOwner.publicKey,
         newOwner: newOwner.publicKey,
         landInfo: landPDA,
         mintAccount: landInfoBefore.nftMint,
+        programState: programStatePDA,
       })
-      .signers([currentOwner])
+      .signers([admin, currentOwner])
       .rpc();
 
     const landInfoPending = await program.account.landInfo.fetch(landPDA);
@@ -144,15 +180,16 @@ describe("Land Smart Contracts: PDA", () => {
 
     // Step 3: Admin approves transfer
     await program.methods
-      .approveTransfer()
+      .approveTransfer(Array.from(coordinatesHash))
       .accountsPartial({
-        admin: payer.publicKey,
+        admin: admin.publicKey,
         currentOwner: currentOwner.publicKey,
         newOwner: newOwner.publicKey,
         landInfo: landPDA,
         mintAccount: landInfoBefore.nftMint,
+        programState: programStatePDA,
       })
-      .signers([payer])
+      .signers([admin])
       .rpc();
 
     const landInfoAfter = await program.account.landInfo.fetch(landPDA);
@@ -187,54 +224,50 @@ describe("Land Smart Contracts: PDA", () => {
   // -------------------------------------------------------
   it("Setup and settle mortgage", async () => {
     const mintKeypair = new Keypair();
-    const coordinatesHash = coordinatesToHash([
-      [4.98156, 7.0498],
-      [4.8166, 7.0508],
-      [4.8176, 7.0518],
-      [4.8186, 7.0528],
-    ]);
+    const coordinatesHash = randomCoordinatesHash();
 
     const [landPDA] = PublicKey.findProgramAddressSync(
       [Buffer.from("land"), coordinatesHash],
       program.programId
     );
 
-    // Step 1: Register land — payer is owner
+    // Step 1: Register land — admin is payer and owner
     await program.methods
       .registerLand(
         Array.from(coordinatesHash),
-        payer.publicKey,
+        currentOwner.publicKey,
         { active: {} },
         metadata.name,
         metadata.symbol,
         metadata.uri
       )
       .accounts({
-        payer: payer.publicKey,
+        admin: admin.publicKey,
         mintAccount: mintKeypair.publicKey,
-        owner: payer.publicKey,
+        owner: currentOwner.publicKey,
       })
-      .signers([mintKeypair])
+      .signers([mintKeypair, admin])
       .rpc();
 
     const landInfoBefore = await program.account.landInfo.fetch(landPDA);
     assert.equal(landInfoBefore.hasMortgage, false);
     assert.deepEqual(landInfoBefore.status, { active: {} });
 
-    // Step 2: Admin sets up mortgage
+    // Step 2: Admin sets up mortgage (PDA is freeze authority, signs via seeds)
     const lender = Keypair.generate().publicKey;
     const mortgageOrg = Keypair.generate().publicKey;
     const mortgagePrincipal = new anchor.BN(5_000_000); // 5 SOL in lamports
 
     await program.methods
-      .setupMortgage(lender, mortgagePrincipal, mortgageOrg)
+      .setupMortgage(Array.from(coordinatesHash), lender, mortgagePrincipal, mortgageOrg)
       .accountsPartial({
-        admin: payer.publicKey,
-        owner: payer.publicKey,
+        admin: admin.publicKey,
+        owner: currentOwner.publicKey,
         landInfo: landPDA,
         mintAccount: landInfoBefore.nftMint,
+        programState: programStatePDA,
       })
-      .signers([payer])
+      .signers([admin])
       .rpc();
 
     const landInfoMortgaged = await program.account.landInfo.fetch(landPDA);
@@ -251,14 +284,16 @@ describe("Land Smart Contracts: PDA", () => {
     // Step 3: Verify land cannot be transferred while mortgaged
     try {
       await program.methods
-        .initiateTransfer()
+        .initiateTransfer(Array.from(coordinatesHash))
         .accountsPartial({
-          currentOwner: payer.publicKey,
+          admin: admin.publicKey,
+          currentOwner: currentOwner.publicKey,
           newOwner: newOwner.publicKey,
           landInfo: landPDA,
           mintAccount: landInfoBefore.nftMint,
+          programState: programStatePDA,
         })
-        .signers([payer])
+        .signers([admin, currentOwner])
         .rpc();
       assert.fail("Should have thrown LandHasMortgage error");
     } catch (err: any) {
@@ -266,16 +301,17 @@ describe("Land Smart Contracts: PDA", () => {
       console.log("Correctly blocked transfer on mortgaged land");
     }
 
-    // Step 4: Admin settles mortgage
+    // Step 4: Admin settles mortgage (PDA is freeze authority, signs via seeds)
     await program.methods
-      .settleMortgage()
+      .settleMortgage(Array.from(coordinatesHash))
       .accountsPartial({
-        admin: payer.publicKey,
-        owner: payer.publicKey,
+        admin: admin.publicKey,
+        owner: currentOwner.publicKey,
         landInfo: landPDA,
         mintAccount: landInfoBefore.nftMint,
+        programState: programStatePDA,
       })
-      .signers([payer])
+      .signers([admin])
       .rpc();
 
     const landInfoSettled = await program.account.landInfo.fetch(landPDA);
@@ -308,18 +344,18 @@ describe("Land Smart Contracts: PDA", () => {
     await program.methods
       .registerLand(
         Array.from(coordinatesHash),
-        payer.publicKey,
+        admin.publicKey,
         { active: {} },
         metadata.name,
         metadata.symbol,
         metadata.uri
       )
       .accounts({
-        payer: payer.publicKey,
+        admin: admin.publicKey,
         mintAccount: mintKeypair1.publicKey,
-        owner: payer.publicKey,
+        owner: admin.publicKey,
       })
-      .signers([mintKeypair1])
+      .signers([mintKeypair1, admin])
       .rpc();
 
     // Second registration with same coordinates — should fail
@@ -327,18 +363,18 @@ describe("Land Smart Contracts: PDA", () => {
       await program.methods
         .registerLand(
           Array.from(coordinatesHash),
-          payer.publicKey,
+          admin.publicKey,
           { active: {} },
           metadata.name,
           metadata.symbol,
           metadata.uri
         )
         .accounts({
-          payer: payer.publicKey,
+          admin: admin.publicKey,
           mintAccount: mintKeypair2.publicKey,
-          owner: payer.publicKey,
+          owner: admin.publicKey,
         })
-        .signers([mintKeypair2])
+        .signers([mintKeypair2, admin])
         .rpc();
       assert.fail("Should have thrown already in use error");
     } catch (err: any) {
