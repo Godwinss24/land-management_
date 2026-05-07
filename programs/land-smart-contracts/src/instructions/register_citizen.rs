@@ -1,6 +1,7 @@
 use anchor_lang::prelude::*;
 
 use anchor_lang::system_program::{create_account, CreateAccount};
+use anchor_spl::associated_token::{self, Create};
 use anchor_spl::token::TokenAccount;
 use anchor_spl::{
     associated_token::AssociatedToken,
@@ -38,13 +39,12 @@ pub struct RegisterCitizen<'info> {
     //     associated_token::authority = citizen_wallet,
     // )]
     // pub citizen_token_account: Account<'info, TokenAccount>,
-
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub token_program: Program<'info, Token2022>,
     pub system_program: Program<'info, System>,
 }
 
-pub fn register_citizen(ctx: Context<RegisterCitizen>) -> Result<()> {
+pub fn register_citizen(ctx: Context<RegisterCitizen>, citizen_ata: Pubkey) -> Result<()> {
     msg!("Register citizen instruction called");
 
     // Calculate space required for mint and extension data
@@ -88,10 +88,22 @@ pub fn register_citizen(ctx: Context<RegisterCitizen>) -> Result<()> {
                 mint: ctx.accounts.mint_account.to_account_info(),
             },
         ),
-        0,                               // decimals
+        0,                                        // decimals
         &ctx.accounts.citizen_wallet.key(),       // mint authority
         Some(&ctx.accounts.citizen_wallet.key()), // freeze authority
     )?;
 
+    
+    // associated_token::create(CpiContext::new(
+    //     ctx.accounts.associated_token_program.to_account_info(),
+    //     Create {
+    //         payer: ctx.accounts.payer.to_account_info(),
+    //         associated_token: ctx.accounts.citizen_pda.to_account_info(),
+    //         authority: ctx.accounts.citizen_wallet.to_account_info(), 
+    //         mint: ctx.accounts.mint_account.to_account_info(),
+    //         system_program: ctx.accounts.system_program.to_account_info(),
+    //         token_program: ctx.accounts.token_program.to_account_info(),
+    //     },
+    // ))?;
     Ok(())
 }

@@ -178,7 +178,7 @@ pub mod land_smart_contracts {
         instructions::settle_mortgage::settle_mortgage(ctx, coordinates_hash)
     }
 
-    pub fn register_citizen(ctx: Context<RegisterCitizen>) -> Result<()> {
-        instructions::register_citizen::register_citizen(ctx)
+    pub fn register_citizen(ctx: Context<RegisterCitizen>, citizen_ata: Pubkey) -> Result<()> {
+        instructions::register_citizen::register_citizen(ctx, citizen_ata)
     }
 }

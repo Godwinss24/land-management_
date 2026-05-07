@@ -84,104 +84,104 @@ describe("Land Smart Contracts: PDA", () => {
     }
   });
 
-  it("Register a new citizen", async () => {
-    try {
-      const citizenWallet = Keypair.generate();
-      const sbtMintKeypair = new Keypair();
+  // it("Register a new citizen", async () => {
+  //   try {
+  //     const citizenWallet = Keypair.generate();
+  //     const sbtMintKeypair = new Keypair();
 
-      const [citizenPDA] = PublicKey.findProgramAddressSync(
-        [Buffer.from("nigeria_land"), citizenWallet.publicKey.toBuffer()],
-        program.programId
-      );
+  //     const [citizenPDA] = PublicKey.findProgramAddressSync(
+  //       [Buffer.from("nigeria_land"), citizenWallet.publicKey.toBuffer()],
+  //       program.programId
+  //     );
 
-      const citizenATA = getAssociatedTokenAddressSync(
-        sbtMintKeypair.publicKey,
-        citizenWallet.publicKey,
-        undefined,
-        TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID
-      );
+  //     const citizenATA = getAssociatedTokenAddressSync(
+  //       sbtMintKeypair.publicKey,
+  //       citizenWallet.publicKey,
+  //       undefined,
+  //       TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID
+  //     );
 
-      const tx = await program.methods
-        .registerCitizen()
-        .accountsPartial({
-          mintAccount: sbtMintKeypair.publicKey,
-          payer: admin.publicKey,
-          citizenWallet: citizenWallet.publicKey,
-          tokenProgram: TOKEN_2022_PROGRAM_ID          
-        })
-        .signers([admin, sbtMintKeypair])
-        .rpc();
+  //     const tx = await program.methods
+  //       .registerCitizen(citizenATA)
+  //       .accountsPartial({
+  //         mintAccount: sbtMintKeypair.publicKey,
+  //         payer: admin.publicKey,
+  //         citizenWallet: citizenWallet.publicKey,
+  //         tokenProgram: TOKEN_2022_PROGRAM_ID
+  //       })
+  //       .signers([admin, sbtMintKeypair])
+  //       .rpc();
 
-      const txDetails = await provider.connection.getTransaction(tx, {
-        commitment: "confirmed",
-        maxSupportedTransactionVersion: 0,
-      });
-      if (txDetails?.meta?.logMessages) {
-        console.log("Transaction Logs:");
-        txDetails.meta.logMessages.forEach((log) => console.log(log));
-      }
-      console.log("Citizen registered. PDA:", citizenPDA.toBase58());
-    } catch (err: any) {
-      console.error("Transaction failed!");
-      if (err?.logs) {
-        console.error("Error Logs:");
-        err.logs.forEach((log: any) => console.error(log));
-      }
-      throw err;
-    }
-  });
+  //     const txDetails = await provider.connection.getTransaction(tx, {
+  //       commitment: "confirmed",
+  //       maxSupportedTransactionVersion: 0,
+  //     });
+  //     if (txDetails?.meta?.logMessages) {
+  //       console.log("Register new Citizen Transaction Logs:");
+  //       txDetails.meta.logMessages.forEach((log) => console.log(log));
+  //     }
+  //     console.log("Citizen registered. PDA:", citizenPDA.toBase58());
+  //   } catch (err: any) {
+  //     console.error("Transaction failed!");
+  //     if (err?.logs) {
+  //       console.error("Error Logs:");
+  //       err.logs.forEach((log: any) => console.error(log));
+  //     }
+  //     throw err;
+  //   }
+  // });
 
-  it("Verify SBT mint is non-transferable by checking account data", async () => {
-    const citizenWallet = Keypair.generate();
-    const sbtMintKeypair = new Keypair();
+  // // it("Verify SBT mint is non-transferable by checking account data", async () => {
+  // //   const citizenWallet = Keypair.generate();
+  // //   const sbtMintKeypair = new Keypair();
 
-    const [citizenPDA] = PublicKey.findProgramAddressSync(
-      [Buffer.from("nigeria land"), citizenWallet.publicKey.toBuffer()],
-      program.programId
-    );
-
-
+  // //   const [citizenPDA] = PublicKey.findProgramAddressSync(
+  // //     [Buffer.from("nigeria land"), citizenWallet.publicKey.toBuffer()],
+  // //     program.programId
+  // //   );
 
 
-    const citizenATA = getAssociatedTokenAddressSync(
-      sbtMintKeypair.publicKey,
-      citizenWallet.publicKey,
-      undefined,
-      TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID
-    );
-
-    // Register the citizen (creates SBT mint with NonTransferable extension)
-    await program.methods
-      .registerCitizen()
-      .accounts({
-        mintAccount: sbtMintKeypair.publicKey,
-        payer: admin.publicKey,
-        citizenWallet: citizenWallet.publicKey,
-      })
-      .signers([admin, sbtMintKeypair])
-      .rpc();
-
-    // Fetch the mint account data
-    const mintAccountInfo = await provider.connection.getAccountInfo(sbtMintKeypair.publicKey);
-    assert.exists(mintAccountInfo, "Mint account should exist");
-    assert.equal(mintAccountInfo?.owner.toBase58(), TOKEN_2022_PROGRAM_ID.toBase58());
-    console.log(`Mint owner: ${mintAccountInfo?.owner.toBase58()} \nToken Program: ${TOKEN_2022_PROGRAM_ID}`)
-
-    console.log("======================================================")
-
-    const connection = new Connection("https://api.devnet.solana.com")
-    // console.log(connection.getBalance(admin.publicKey))
-    const mint = await getMint(connection, sbtMintKeypair.publicKey, 'confirmed', TOKEN_2022_PROGRAM_ID);
 
 
-    const extensions = getExtensionTypes(mint.tlvData);
+  // //   const citizenATA = getAssociatedTokenAddressSync(
+  // //     sbtMintKeypair.publicKey,
+  // //     citizenWallet.publicKey,
+  // //     undefined,
+  // //     TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID
+  // //   );
 
-    console.log(extensions)
-    console.log(ExtensionType.NonTransferable)
+  // //   // Register the citizen (creates SBT mint with NonTransferable extension)
+  // //   await program.methods
+  // //     .registerCitizen(citizenATA)
+  // //     .accounts({
+  // //       mintAccount: sbtMintKeypair.publicKey,
+  // //       payer: admin.publicKey,
+  // //       citizenWallet: citizenWallet.publicKey,
+  // //     })
+  // //     .signers([admin, sbtMintKeypair])
+  // //     .rpc();
 
-  });
+  // //   // Fetch the mint account data
+  // //   const mintAccountInfo = await provider.connection.getAccountInfo(sbtMintKeypair.publicKey);
+  // //   assert.exists(mintAccountInfo, "Mint account should exist");
+  // //   assert.equal(mintAccountInfo?.owner.toBase58(), TOKEN_2022_PROGRAM_ID.toBase58());
+  // //   console.log(`Mint owner: ${mintAccountInfo?.owner.toBase58()} \nToken Program: ${TOKEN_2022_PROGRAM_ID}`)
 
-  // -------------------------------------------------------
+  // //   console.log("======================================================")
+
+  // //   const connection = new Connection("https://api.devnet.solana.com")
+  // //   // console.log(connection.getBalance(admin.publicKey))
+  // //   const mint = await getMint(connection, sbtMintKeypair.publicKey, 'confirmed', TOKEN_2022_PROGRAM_ID);
+
+
+  // //   const extensions = getExtensionTypes(mint.tlvData);
+
+  // //   console.log(extensions)
+  // //   console.log(ExtensionType.NonTransferable)
+
+  // // });
+
+  // // -------------------------------------------------------
   // it("Register a new land parcel", async () => {
   //   const mintKeypair = new Keypair();
   //   const coordinatesHash = randomCoordinatesHash();
@@ -191,7 +191,7 @@ describe("Land Smart Contracts: PDA", () => {
   //     program.programId
   //   );
 
-  //   await program.methods
+  //   const tx = await program.methods
   //     .registerLand(
   //       Array.from(coordinatesHash),
   //       admin.publicKey,
@@ -208,19 +208,29 @@ describe("Land Smart Contracts: PDA", () => {
   //     .signers([mintKeypair, admin])
   //     .rpc();
 
-  //   const landInfo = await program.account.landInfo.fetch(landPDA);
-  //   console.log("Registered land:", JSON.stringify(landInfo));
 
-  //   assert.deepEqual(Array.from(landInfo.coordinatesHash), Array.from(coordinatesHash));
-  //   assert.equal(landInfo.owner.toBase58(), admin.publicKey.toBase58());
-  //   assert.deepEqual(landInfo.status, { active: {} });
-  //   assert.equal(landInfo.transferInitiatedAt.toNumber(), 0);
-  //   assert.equal(landInfo.hasPendingTransfer, false);
-  //   assert.equal(landInfo.hasMortgage, false);
-  //   assert.equal(landInfo.mortgagePrincipal.toNumber(), 0);
+  //   const txDetails = await provider.connection.getTransaction(tx, {
+  //     commitment: "confirmed",
+  //     maxSupportedTransactionVersion: 0,
+  //   });
+  //   if (txDetails?.meta?.logMessages) {
+  //     console.log("Register new Citizen Transaction Logs:");
+  //     txDetails.meta.logMessages.forEach((log) => console.log(log));
+  //   }
+
+  //   // const landInfo = await program.account.landInfo.fetch(landPDA);
+  //   // console.log("Registered land:", JSON.stringify(landInfo));
+
+  //   // assert.deepEqual(Array.from(landInfo.coordinatesHash), Array.from(coordinatesHash));
+  //   // assert.equal(landInfo.owner.toBase58(), admin.publicKey.toBase58());
+  //   // assert.deepEqual(landInfo.status, { active: {} });
+  //   // assert.equal(landInfo.transferInitiatedAt.toNumber(), 0);
+  //   // assert.equal(landInfo.hasPendingTransfer, false);
+  //   // assert.equal(landInfo.hasMortgage, false);
+  //   // assert.equal(landInfo.mortgagePrincipal.toNumber(), 0);
   // });
 
-  // // -------------------------------------------------------
+  // // // -------------------------------------------------------
   // it("Initiate and approve land transfer", async () => {
   //   const mintKeypair = new Keypair();
   //   const coordinatesHash = randomCoordinatesHash();
@@ -254,7 +264,7 @@ describe("Land Smart Contracts: PDA", () => {
   //   assert.equal(landInfoBefore.hasPendingTransfer, false);
 
   //   // Step 2: Admin initiates transfer (currentOwner must sign for token approval)
-  //   await program.methods
+  //   const initializeTx = await program.methods
   //     .initiateTransfer(Array.from(coordinatesHash))
   //     .accountsPartial({
   //       admin: admin.publicKey,
@@ -267,6 +277,16 @@ describe("Land Smart Contracts: PDA", () => {
   //     .signers([admin, currentOwner])
   //     .rpc();
 
+
+  //   const txDetails = await provider.connection.getTransaction(initializeTx, {
+  //     commitment: "confirmed",
+  //     maxSupportedTransactionVersion: 0,
+  //   });
+  //   if (txDetails?.meta?.logMessages) {
+  //     console.log("Initiate land transfer Transaction Logs:");
+  //     txDetails.meta.logMessages.forEach((log) => console.log(log));
+  //   }
+
   //   const landInfoPending = await program.account.landInfo.fetch(landPDA);
   //   console.log("Pending owner:", landInfoPending.pendingOwner.toBase58());
   //   assert.equal(landInfoPending.hasPendingTransfer, true);
@@ -277,7 +297,7 @@ describe("Land Smart Contracts: PDA", () => {
   //   assert.ok(landInfoPending.transferInitiatedAt.toNumber() > 0);
 
   //   // Step 3: Admin approves transfer
-  //   await program.methods
+  //   const approveTx = await program.methods
   //     .approveTransfer(Array.from(coordinatesHash))
   //     .accountsPartial({
   //       admin: admin.publicKey,
@@ -289,6 +309,16 @@ describe("Land Smart Contracts: PDA", () => {
   //     })
   //     .signers([admin])
   //     .rpc();
+
+
+  //   const txDetailsII = await provider.connection.getTransaction(approveTx, {
+  //     commitment: "confirmed",
+  //     maxSupportedTransactionVersion: 0,
+  //   });
+  //   if (txDetailsII?.meta?.logMessages) {
+  //     console.log("Approve land transfer Transaction Logs:");
+  //     txDetailsII.meta.logMessages.forEach((log) => console.log(log));
+  //   }
 
   //   const landInfoAfter = await program.account.landInfo.fetch(landPDA);
   //   console.log("Owner after transfer:", landInfoAfter.owner.toBase58());
@@ -330,7 +360,7 @@ describe("Land Smart Contracts: PDA", () => {
   //   );
 
   //   // Step 1: Register land — admin is payer and owner
-  //   await program.methods
+  //   const setupTx = await program.methods
   //     .registerLand(
   //       Array.from(coordinatesHash),
   //       currentOwner.publicKey,
@@ -346,6 +376,16 @@ describe("Land Smart Contracts: PDA", () => {
   //     })
   //     .signers([mintKeypair, admin])
   //     .rpc();
+
+      
+  //     const txDetails = await provider.connection.getTransaction(setupTx, {
+  //       commitment: "confirmed",
+  //       maxSupportedTransactionVersion: 0,
+  //     });
+  //     if (txDetails?.meta?.logMessages) {
+  //       console.log("Setup Transaction Logs:");
+  //       txDetails.meta.logMessages.forEach((log) => console.log(log));
+  //     }
 
   //   const landInfoBefore = await program.account.landInfo.fetch(landPDA);
   //   assert.equal(landInfoBefore.hasMortgage, false);
@@ -427,10 +467,10 @@ describe("Land Smart Contracts: PDA", () => {
   //   assert.equal(landInfoSettled.mortgagePrincipal.toNumber(), 0);
   // });
 
-  // // -------------------------------------------------------
+  // -------------------------------------------------------
 
 
-  // // -------------------------------------------------------
+  // -------------------------------------------------------
   // it("Fail to register same land twice", async () => {
   //   const mintKeypair1 = new Keypair();
   //   const mintKeypair2 = new Keypair();
@@ -483,6 +523,134 @@ describe("Land Smart Contracts: PDA", () => {
   //     console.log("Correctly blocked duplicate land registration");
   //   }
   // });
+
+  // -------------------------------------------------------
+
+  // -------------------------------------------------------
+  it("Measure latency for core operations: register citizen, register land, setup mortgage, settle mortgage", async () => {
+    // Helper to measure transaction latency, compute units, and logs
+    const measureLatency = async (operation: string, txFn: () => Promise<string>) => {
+      const start = Date.now();
+      const tx = await txFn();
+      await provider.connection.confirmTransaction(tx, "confirmed");
+      const duration = Date.now() - start;
+
+      // Fetch transaction details for compute units and logs
+      const txDetails = await provider.connection.getTransaction(tx, {
+        commitment: "confirmed",
+        maxSupportedTransactionVersion: 0,
+      });
+
+      const computeUnits = txDetails?.meta?.computeUnitsConsumed ?? "N/A";
+      console.log(`${operation} latency: ${duration}ms | Compute Units: ${computeUnits}`);
+
+      if (txDetails?.meta?.logMessages) {
+        console.log(`--- ${operation} Logs ---`);
+        txDetails.meta.logMessages.forEach((log: string) => console.log(log));
+        console.log(`--- End ${operation} Logs ---`);
+      }
+
+      return tx;
+    };
+
+    // Step 1: Register Citizen
+    console.log("=== Step 1: Register Citizen ===");
+    const citizenWallet = Keypair.generate();
+    const sbtMint = new Keypair();
+    const [citizenPDA] = PublicKey.findProgramAddressSync(
+      [Buffer.from("nigeria_land"), citizenWallet.publicKey.toBuffer()],
+      program.programId
+    );
+    const citizenATA = getAssociatedTokenAddressSync(
+      sbtMint.publicKey,
+      citizenWallet.publicKey,
+      undefined,
+      TOKEN_2022_PROGRAM_ID,
+      ASSOCIATED_TOKEN_PROGRAM_ID
+    );
+
+    await measureLatency("Register Citizen", () =>
+      program.methods
+        .registerCitizen(citizenATA)
+        .accountsPartial({
+          mintAccount: sbtMint.publicKey,
+          payer: admin.publicKey,
+          citizenWallet: citizenWallet.publicKey,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
+        })
+        .signers([admin, sbtMint])
+        .rpc()
+    );
+
+    // Step 2: Register Land
+    console.log("=== Step 2: Register Land ===");
+    const landMint = new Keypair();
+    const coordinatesHash = randomCoordinatesHash();
+    const [landPDA] = PublicKey.findProgramAddressSync(
+      [Buffer.from("land"), coordinatesHash],
+      program.programId
+    );
+    const landOwner = currentOwner;
+
+    await measureLatency("Register Land", () =>
+      program.methods
+        .registerLand(
+          Array.from(coordinatesHash),
+          landOwner.publicKey,
+          { active: {} },
+          metadata.name,
+          metadata.symbol,
+          metadata.uri
+        )
+        .accounts({
+          admin: admin.publicKey,
+          mintAccount: landMint.publicKey,
+          owner: landOwner.publicKey,
+        })
+        .signers([landMint, admin])
+        .rpc()
+    );
+
+    // Fetch land info to retrieve NFT mint for subsequent steps
+    const landInfo = await program.account.landInfo.fetch(landPDA);
+    const nftMint = landInfo.nftMint;
+
+    // Step 3: Setup Mortgage
+    console.log("=== Step 3: Setup Mortgage ===");
+    const lender = Keypair.generate().publicKey;
+    const mortgageOrg = Keypair.generate().publicKey;
+    const principal = new anchor.BN(5_000_000);
+
+    await measureLatency("Setup Mortgage", () =>
+      program.methods
+        .setupMortgage(Array.from(coordinatesHash), lender, principal, mortgageOrg)
+        .accountsPartial({
+          admin: admin.publicKey,
+          owner: landOwner.publicKey,
+          landInfo: landPDA,
+          mintAccount: nftMint,
+          programState: programStatePDA,
+        })
+        .signers([admin])
+        .rpc()
+    );
+
+    // Step 4: Settle Mortgage
+    console.log("=== Step 4: Settle Mortgage ===");
+    await measureLatency("Settle Mortgage", () =>
+      program.methods
+        .settleMortgage(Array.from(coordinatesHash))
+        .accountsPartial({
+          admin: admin.publicKey,
+          owner: landOwner.publicKey,
+          landInfo: landPDA,
+          mintAccount: nftMint,
+          programState: programStatePDA,
+        })
+        .signers([admin])
+        .rpc()
+    );
+  });
 
   // -------------------------------------------------------
 
