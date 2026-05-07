@@ -1,4 +1,6 @@
-use crate::state::land_parcel::{LandInfo, ParcelStatus};
+use crate::state::errors::LandError;
+use crate::state::land_parcel::LandInfo;
+use crate::state::program_state::ProgramState;
 use anchor_lang::prelude::*;
 use anchor_spl::{
     associated_token::AssociatedToken,
@@ -11,7 +13,7 @@ use anchor_spl::{
 #[instruction(coordinates_hash: [u8; 32])]
 pub struct RegisterLand<'info> {
     #[account(mut)]
-    pub payer: Signer<'info>,
+    pub admin: Signer<'info>,
 
     /// CHECK: doc comment explaining why no checks through types are necessary.
     pub owner: UncheckedAccount<'info>,
@@ -19,14 +21,14 @@ pub struct RegisterLand<'info> {
     #[account(
         init,
         space = 8 + LandInfo::INIT_SPACE,
-        payer = payer,
+        payer = admin,
         seeds = [
             LandInfo::SEED_PREFIX,
             coordinates_hash.as_ref(),
         ],
         bump,
     )]
-    pub land_info: Account<'info, LandInfo>, // THE PDA that represents the land and its coordinates
+    pub land_info: Account<'info, LandInfo>,
 
     /// CHECK: Validate address by deriving pda
     #[account(
@@ -36,23 +38,30 @@ pub struct RegisterLand<'info> {
         seeds::program = token_metadata_program.key(),
     )]
     pub metadata_account: UncheckedAccount<'info>,
-    // Create new mint account
+
     #[account(
         init,
-        payer = payer,
+        payer = admin,
         mint::decimals = 0,
         mint::authority = land_info.key(),
-         mint::freeze_authority = land_info.key()
+        mint::freeze_authority = land_info.key()
     )]
     pub mint_account: Account<'info, Mint>,
 
     #[account(
         init,
-        payer = payer,
+        payer = admin,
         associated_token::mint = mint_account,
         associated_token::authority = owner,
     )]
     pub token_account: Account<'info, TokenAccount>,
+
+    #[account(
+        seeds = [ProgramState::SEED_PREFIX],
+        bump = program_state.bump,
+        constraint = admin.key() == program_state.admin @ LandError::UnauthorizedAdmin
+    )]
+    pub program_state: Account<'info, ProgramState>,
 
     pub associated_token_program: Program<'info, AssociatedToken>,
 

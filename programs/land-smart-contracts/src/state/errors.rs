@@ -18,4 +18,6 @@ pub enum LandError {
     MortgageAlreadyExists,
     #[msg("No mortgage found on this parcel")]
     NoMortgageFound,
+    #[msg("Unauthorized admin")]
+    UnauthorizedAdmin,
 }

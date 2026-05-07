@@ -1,21 +1,26 @@
 use crate::state::errors::LandError;
 use crate::state::land_parcel::LandInfo;
+use crate::state::program_state::ProgramState;
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{approve, freeze_account, Approve, FreezeAccount};
 use anchor_spl::token::{Mint, Token, TokenAccount};
 
 #[derive(Accounts)]
+#[instruction(coordinates_hash: [u8; 32])]
 pub struct InitiateTransfer<'info> {
     #[account(mut)]
-    pub current_owner: Signer<'info>, // owner signs — proves intent
+    pub admin: Signer<'info>,
+
+    /// CHECK: validated as current owner wallet, must sign for token approval
+    pub current_owner: Signer<'info>,
 
     /// CHECK: validated as new owner wallet
     pub new_owner: SystemAccount<'info>,
 
     #[account(
         mut,
-        seeds = [LandInfo::SEED_PREFIX, land_info.coordinates_hash.as_ref()],
+        seeds = [LandInfo::SEED_PREFIX, coordinates_hash.as_ref()],
         bump = land_info.bump,
         constraint = land_info.owner == current_owner.key() @ LandError::NotOwner,
         constraint = !land_info.has_pending_transfer @ LandError::TransferAlreadyPending,
@@ -38,12 +43,19 @@ pub struct InitiateTransfer<'info> {
     )]
     pub current_owner_token_account: Account<'info, TokenAccount>,
 
+    #[account(
+        seeds = [ProgramState::SEED_PREFIX],
+        bump = program_state.bump,
+        constraint = admin.key() == program_state.admin @ LandError::UnauthorizedAdmin
+    )]
+    pub program_state: Account<'info, ProgramState>,
+
     pub token_program: Program<'info, Token>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
 }
 
-pub fn initiate_transfer(ctx: Context<InitiateTransfer>) -> Result<()> {
+pub fn initiate_transfer(ctx: Context<InitiateTransfer>, _coordinates_hash: [u8; 32]) -> Result<()> {
     let land_info = &mut ctx.accounts.land_info;
     let clock = Clock::get()?;
 
